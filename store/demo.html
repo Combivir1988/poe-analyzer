@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>POE Analyzer — screenshot source</title>
+<style>
+  html, body { margin: 0; width: 1280px; height: 800px; overflow: hidden; }
+  body {
+    font-family: "Amazon Ember", -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(135deg, #1b2431 0%, #232f3e 55%, #2d3d52 100%);
+    color: #fff; position: relative;
+  }
+  .left { position: absolute; left: 80px; top: 110px; width: 560px; }
+  .left h1 { font-size: 46px; margin: 0 0 14px; line-height: 1.1; }
+  .left h1 span { color: #ff9900; }
+  .left p { font-size: 20px; line-height: 1.45; color: #d5d9d9; margin: 0 0 26px; }
+  .left ul { list-style: none; padding: 0; margin: 0; font-size: 17px; line-height: 1.7; color: #e3e6e6; }
+  .left li::before { content: "✓ "; color: #ff9900; font-weight: 700; }
+  .json { position: absolute; left: 80px; bottom: 70px; width: 560px;
+    background: #0f1720; border: 1px solid #3a4a5e; border-radius: 10px; padding: 14px 18px;
+    font: 13px/1.5 Consolas, "SFMono-Regular", monospace; color: #9ccc65; }
+  .json .k { color: #82b1ff; } .json .s { color: #ffcc80; } .json .c { color: #78909c; }
+
+  .popup { position: absolute; right: 120px; top: 120px; width: 340px;
+    background: #fff; color: #0f1111; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 30px 60px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.08); font-size: 13px; }
+  .head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px;
+    background: #232f3e; color: #fff; font-size: 15px; font-weight: 600; }
+  .head small { font-weight: 400; opacity: .7; font-size: 11px; }
+  .body { padding: 14px 16px 12px; }
+  .status { line-height: 1.5; }
+  .muted { color: #565959; }
+  .hint { margin-top: 6px; font-size: 12px; color: #565959; line-height: 1.4; }
+  ul.tabs { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; line-height: 1.6; }
+  ul.tabs li::before { content: "○ "; color: #999; }
+  ul.tabs li.have::before { content: "● "; color: #067d62; }
+  button.primary { margin-top: 14px; width: 100%; padding: 10px; font-size: 14px; font-weight: 600;
+    font-family: inherit; color: #0f1111; background: #ffd814; border: 1px solid #fcd200; border-radius: 8px; }
+  .others { margin-top: 14px; padding-top: 10px; border-top: 1px solid #ededed; }
+  .others h4 { margin: 0 0 6px; font-size: 12px; color: #565959; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .d { color: #565959; font-size: 11px; white-space: nowrap; }
+  .row button { font-family: inherit; font-size: 11px; padding: 3px 8px; background: #fff; border: 1px solid #d5d9d9; border-radius: 6px; }
+  .foot { margin-top: 12px; padding-top: 8px; border-top: 1px solid #ededed; display: flex; justify-content: space-between; font-size: 11px; color: #565959; }
+  .foot a { color: #007185; }
+  .cursor { position: absolute; right: 250px; top: 447px; width: 0; height: 0;
+    border-left: 12px solid #fff; border-top: 8px solid transparent; border-bottom: 8px solid transparent;
+    transform: rotate(-35deg); filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); }
+</style>
+</head>
+<body>
+  <div class="left">
+    <h1>POE <span>Analyzer</span></h1>
+    <p>One click in Product Opportunity Explorer → one JSON file with the whole niche, ready for offline analysis.</p>
+    <ul>
+      <li>Niche metrics, launch potential, 60+ ASINs</li>
+      <li>Search terms with volume &amp; conversion, weekly trends</li>
+      <li>All 6 Top Niche Insights tabs as text</li>
+      <li>Nothing leaves your browser except the file you download</li>
+    </ul>
+  </div>
+  <div class="json">
+<span class="c">// POE_urinal_screen_deodorizer_2026-09-15.json</span><br>
+{ <span class="k">"meta"</span>: { <span class="k">"nicheTitle"</span>: <span class="s">"urinal screen deodorizer"</span>, … },<br>
+&nbsp;&nbsp;<span class="k">"data"</span>: { <span class="k">"niche"</span>: { <span class="k">"asinMetrics"</span>: [ <span class="c">67 items</span> ], <span class="k">"searchTermMetrics"</span>: [ <span class="c">14</span> ], <span class="k">"trendsMetrics"</span>: [ <span class="c">104</span> ], … } },<br>
+&nbsp;&nbsp;<span class="k">"insights"</span>: { <span class="k">"OX_NICHE_MARKET_POTENTIAL_PROMPT"</span>: { <span class="k">"tab"</span>: <span class="s">"Niche Overview"</span>, <span class="k">"html"</span>: <span class="s">"&lt;h2&gt;…"</span> }, … } }
+  </div>
+
+  <div class="popup">
+    <div class="head"><span>POE Analyzer</span><small>v1.0.0</small></div>
+    <div class="body">
+      <div class="status">
+        Niche: <b>urinal screen deodorizer</b><br>
+        <span class="muted">Marketplace: ATVPDKIKX0DER · captured: 15 Sep 2026, 12:39</span>
+        <div class="hint">Data: metrics, launch potential, products (67), search terms (14), trends (104), PDR/reviews</div>
+        <div class="hint">Top Niche Insights: <b>1 of 6</b> — the rest will be fetched on download (sequentially, ~5–20 s)</div>
+      </div>
+      <ul class="tabs">
+        <li class="have">Niche Overview</li>
+        <li>Top Product Features</li>
+        <li>Customer Reviews</li>
+        <li>Customer Demographics</li>
+        <li>Search Terms</li>
+        <li>Pricing</li>
+      </ul>
+      <button class="primary">Download JSON</button>
+      <div class="others">
+        <h4>Other saved niches</h4>
+        <div class="row"><span class="t">bike inner tube 700c</span><span class="d">14 Sep 2026 · 6/6</span><button>JSON</button></div>
+        <div class="row"><span class="t">presta valve extender</span><span class="d">12 Sep 2026 · 6/6</span><button>JSON</button></div>
+      </div>
+      <div class="foot"><span>Data stays in your browser (last 8 niches)</span><a>Clear</a></div>
+    </div>
+  </div>
+  <div class="cursor"></div>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <title>POE Analyzer</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      width: 340px;
+      margin: 0;
+      font-family: "Amazon Ember", -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      color: #0f1111;
+      background: #fff;
+    }
+    .head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      background: #232f3e; color: #fff;
+      font-size: 15px; font-weight: 600;
+    }
+    .head small { font-weight: 400; opacity: .7; font-size: 11px; }
+    .body { padding: 14px 16px 12px; }
+    .status { line-height: 1.5; min-height: 36px; }
+    .muted { color: #565959; }
+    .err { color: #b12704; }
+    .ok { color: #067d62; }
+    .hint { margin-top: 6px; font-size: 12px; color: #565959; line-height: 1.4; }
+    ul.tabs { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; line-height: 1.6; }
+    ul.tabs li::before { content: "○ "; color: #999; }
+    ul.tabs li.have::before { content: "● "; color: #067d62; }
+    ul.tabs li.active-fetch::before { content: "◐ "; color: #ff9900; }
+    button.primary {
+      margin-top: 14px; width: 100%; padding: 10px;
+      font-size: 14px; font-weight: 600; font-family: inherit;
+      color: #0f1111; background: #ffd814;
+      border: 1px solid #fcd200; border-radius: 8px; cursor: pointer;
+    }
+    button.primary:disabled { background: #ededed; border-color: #d5d9d9; color: #999; cursor: default; }
+    .others { margin-top: 14px; padding-top: 10px; border-top: 1px solid #ededed; }
+    .others h4 { margin: 0 0 6px; font-size: 12px; color: #565959; font-weight: 600; }
+    .others .row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0; font-size: 12px;
+    }
+    .others .row .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .others .row .d { color: #565959; font-size: 11px; white-space: nowrap; }
+    .others .row button {
+      font-family: inherit; font-size: 11px; padding: 3px 8px;
+      background: #fff; border: 1px solid #d5d9d9; border-radius: 6px; cursor: pointer;
+    }
+    .others .row button:hover { background: #f7fafa; }
+    .foot {
+      margin-top: 12px; padding-top: 8px; border-top: 1px solid #ededed;
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: #565959;
+    }
+    a { color: #007185; cursor: pointer; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="head"><span>POE Analyzer</span><small id="ver"></small></div>
+  <div class="body">
+    <div class="status" id="status">Перевіряю…</div>
+    <ul class="tabs" id="tabs" hidden></ul>
+    <button class="primary" id="download" disabled>Завантажити JSON</button>
+    <div class="others" id="others" hidden>
+      <h4>Інші збережені ніші</h4>
+      <div id="othersList"></div>
+    </div>
+    <div class="foot">
+      <span>Дані лишаються в браузері (останні 8 ніш)</span>
+      <a id="clear">Очистити</a>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
