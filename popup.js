@@ -179,6 +179,14 @@ async function init() {
   }
   const rec = state.byNiche[state.nicheId];
   if (!rec || !rec.meta || !rec.data) {
+    try {
+      const pong = await askBridge(state.tab.id, { type: "poea:ping" }, 3000);
+      if (pong && pong.writeError) {
+        noData("Дані ніші спіймано, але не записано: " + pong.writeError + ". Натисніть «Очистити» внизу й оновіть сторінку (F5).", "err");
+        renderOthers();
+        return;
+      }
+    } catch (e) { /* немає моста */ }
     noData("Дані цієї ніші ще не спіймано. Оновіть сторінку (F5), дочекайтеся завантаження і відкрийте вікно знову.");
     renderOthers();
     return;
@@ -188,6 +196,7 @@ async function init() {
   renderOthers();
   try {
     const pong = await askBridge(state.tab.id, { type: "poea:ping" }, 3000);
+    if (pong && pong.writeError) statusEl.innerHTML += `<div class="hint err">Розширення не може записати дані: ${esc(pong.writeError)}. Натисніть «Очистити» внизу й оновіть сторінку.</div>`;
     statusEl.innerHTML += pong && pong.hasNicheTemplate
       ? '<div class="hint ok">✓ Формат запиту ніші збережено — на сторінці пошуку можна збирати кілька ніш одразу.</div>'
       : '<div class="hint">Формат запиту ще не збережено: оновіть цю сторінку (F5) і дочекайтеся завантаження.</div>';
@@ -334,7 +343,10 @@ async function initBatch() {
   }
   batchEl.hidden = false;
   const niches = (info && info.niches) || [];
-  if (!info.hasTemplate) {
+  if (info.writeError) {
+    batchHint.innerHTML = `<span class="err">Розширення не може записати дані: ${esc(info.writeError)}. Натисніть «Очистити» внизу, оновіть сторінку (F5) і спробуйте знову.</span>`;
+    batchStartBtn.dataset.blocked = "1";
+  } else if (!info.hasTemplate) {
     batchHint.innerHTML = "<b>Один раз:</b> відкрийте будь-яку нішу зі списку нижче (саме після оновлення розширення), " +
       "дочекайтеся завантаження — у попапі з'явиться «✓ Формат запиту ніші збережено». Потім поверніться сюди.";
     batchStartBtn.dataset.blocked = "1";

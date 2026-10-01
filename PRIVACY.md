@@ -43,6 +43,7 @@ JSON file for offline analysis.
 | Permission | Why |
 |---|---|
 | `storage` | Keep the last 8 captured niches in the browser until you download or clear them. |
+| `unlimitedStorage` | Eight niches with weekly trends and Insights text exceed Chrome's default 10 MB local limit; the data still never leaves the device. |
 | Host access to `sellercentral.amazon.*` | Run on Seller Central pages to observe the niche data the page loads and, on your click, request missing Insights tabs from your own session. |
 
 ## Data retention

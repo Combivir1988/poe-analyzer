@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "POE Analyzer",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Зберігає дані ніші Amazon Product Opportunity Explorer одним JSON-файлом (метрики, товари, пошукові запити, тренди, Top Niche Insights) для офлайн-аналізу.",
   "minimum_chrome_version": "111",
-  "permissions": ["storage"],
+  "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": [
     "https://sellercentral.amazon.com/*",
     "https://sellercentral.amazon.ca/*",

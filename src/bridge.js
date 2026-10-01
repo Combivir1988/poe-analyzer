@@ -33,9 +33,16 @@
     try { chrome.storage.local.get(STORE_KEY, (r) => resolve((r && r[STORE_KEY]) || {})); }
     catch (e) { resolve({}); }
   });
+  // Остання помилка запису (напр. переповнене сховище) — показується в попапі.
+  let lastWriteError = null;
   const writeStore = (obj) => new Promise((resolve) => {
-    try { chrome.storage.local.set({ [STORE_KEY]: obj }, () => resolve()); }
-    catch (e) { resolve(); }
+    try {
+      chrome.storage.local.set({ [STORE_KEY]: obj }, () => {
+        const err = chrome.runtime.lastError;
+        lastWriteError = err ? String(err.message || err) : null;
+        resolve();
+      });
+    } catch (e) { lastWriteError = String(e); resolve(); }
   });
 
   // Злиття двох записів однієї ніші: база — свіжіший; інсайти об'єднуються,
@@ -398,7 +405,7 @@
     if (current) out.delete(current);
     const tpl = ((await getKey(NICHE_TPL_KEY)) || {})[ORIGIN] || null;
     const unsup = ((await getKey(UNSUP_KEY)) || {})[ORIGIN] || null;
-    return { niches: Array.from(out.values()), hasTemplate: !!tpl, insightsUnavailable: !!unsup, batch: await getKey(BATCH_KEY) };
+    return { niches: Array.from(out.values()), hasTemplate: !!tpl, writeError: lastWriteError, insightsUnavailable: !!unsup, batch: await getKey(BATCH_KEY) };
   };
 
   // Замінити всі входження рядка from на to у глибокій копії.
@@ -511,7 +518,8 @@
   chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     if (!req || typeof req.type !== "string") return;
     if (req.type === "poea:ping") {
-      getKey(NICHE_TPL_KEY).then((all) => sendResponse({ ok: true, origin: ORIGIN, href: window.location.href, hasNicheTemplate: !!((all || {})[ORIGIN]) }));
+      getKey(NICHE_TPL_KEY).then((all) => sendResponse({ ok: true, origin: ORIGIN, href: window.location.href,
+        hasNicheTemplate: !!((all || {})[ORIGIN]), writeError: lastWriteError }));
       return true;
     }
     if (req.type === "poea:list") {
