@@ -138,6 +138,7 @@
   // Маркетплейси відрізняються формою запиту (на .co.uk типове тіло дає 400),
   // тому дозбір повторює саме той запит, який сторінка вже успішно зробила.
   const TPL_KEY = "poea_growth_tpl";
+  const UNSUP_KEY = "poea_insights_unavailable";
   const ORIGIN = window.location.origin;
   const readTemplates = () => new Promise((resolve) => {
     try { chrome.storage.local.get(TPL_KEY, (r) => resolve((r && r[TPL_KEY]) || {})); } catch (e) { resolve({}); }
@@ -264,6 +265,15 @@
     if (collecting) return { insights, steps, error: "busy" };
     collecting = nicheId;
     const tpl = (await readTemplates())[ORIGIN] || null;
+    // Маркетплейс, де Amazon уже сказав «Unsupported Locale», більше не питаємо.
+    const unsupported = await new Promise((resolve) => {
+      try { chrome.storage.local.get(UNSUP_KEY, (r) => resolve(((r && r[UNSUP_KEY]) || {})[ORIGIN] || null)); } catch (e) { resolve(null); }
+    });
+    if (unsupported && !tpl) {
+      collecting = null;
+      ids.forEach((pid) => { insights[pid] = { error: "unavailable on this marketplace", via: "active" }; });
+      return { insights, steps, unavailable: true, amazonMessage: unsupported.message };
+    }
     let rejected = null; // перша «тверда» відмова без шаблону — далі не стукаємо
     try {
       for (let i = 0; i < ids.length; i++) {
@@ -301,7 +311,17 @@
       }
       notify({ nicheId, done: ids.length, total: ids.length });
       const amazonSays = (steps.find((x) => x.message) || {}).message;
-      return { insights, steps, templateUsed: !!tpl, rejected: rejected || undefined, amazonMessage: amazonSays, pageRequests: pageLog.slice() };
+      const unavailable = !!(amazonSays && /unsupported\s*locale/i.test(amazonSays));
+      if (unavailable) {
+        try {
+          chrome.storage.local.get(UNSUP_KEY, (r) => {
+            const all = (r && r[UNSUP_KEY]) || {};
+            all[ORIGIN] = { message: amazonSays, at: nowIso() };
+            chrome.storage.local.set({ [UNSUP_KEY]: all });
+          });
+        } catch (e) { /* ignore */ }
+      }
+      return { insights, steps, templateUsed: !!tpl, rejected: rejected || undefined, amazonMessage: amazonSays, unavailable, pageRequests: pageLog.slice() };
     } finally {
       collecting = null;
     }

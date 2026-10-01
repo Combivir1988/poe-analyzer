@@ -228,6 +228,7 @@ btn.addEventListener("click", async () => {
         dbg.templateUsed = !!resp.templateUsed;
         if (resp.rejected) dbg.rejected = resp.rejected;
         if (resp.amazonMessage) dbg.amazonMessage = resp.amazonMessage;
+        if (resp.unavailable) dbg.insightsUnavailable = true;
         if (resp.pageRequests) dbg.pageRequests = resp.pageRequests;
       }
       dbg.collectResponse = resp && resp.insights
@@ -251,6 +252,9 @@ btn.addEventListener("click", async () => {
     statusEl.innerHTML += `<div class="hint err">${dbg.needsReload
       ? "Дозбір не вдався: сторінку ніші було відкрито до встановлення/оновлення розширення. Оновіть її (F5), дочекайтеся завантаження і завантажте ще раз."
       : "Дозбір не вдався (" + esc(dbg.collectError) + "). Файл збережено з тим, що вже спіймано."}</div>`;
+  } else if (dbg.insightsUnavailable) {
+    statusEl.innerHTML += `<div class="hint">Top Niche Insights на цьому маркетплейсі Amazon не надає (відповідь: «${esc(dbg.amazonMessage || "Unsupported Locale")}»). ` +
+      "Файл містить усі інші дані ніші. Наступного разу розширення не витрачатиме на Insights жодного запиту.</div>";
   } else if (dbg.rejected) {
     const pageFailed = (dbg.pageRequests || []).filter((x) => x.status && x.status !== 200).length;
     const pageOk = (dbg.pageRequests || []).filter((x) => x.status === 200).length;
