@@ -87,8 +87,9 @@
       const pid = pc && pc.promptId;
       if (typeof pid !== "string" || !pid.startsWith("OX_NICHE_")) return null;
       const ctx = (pc && pc.context) || {};
-      return (text, ok) => {
+      return (text, ok, status) => {
         const html = htmlFromGrowth(parse(text));
+        post({ kind: "pageGrowth", promptId: pid, status: status || (ok ? 200 : 0), message: ok ? undefined : String(text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 300) });
         if (ok && html) {
           // Запит сторінки пройшов — це робочий шаблон для дозбору на цьому маркетплейсі.
           post({
@@ -143,7 +144,7 @@
               let text = null;
               if (rt === "" || rt === "text") text = this.responseText;
               else if (rt === "json") text = JSON.stringify(this.response);
-              if (text != null) handle(text, this.status >= 200 && this.status < 300);
+              if (text != null) handle(text, this.status >= 200 && this.status < 300, this.status);
             } catch (e) { /* responseText може кинути InvalidStateError — пропускаємо */ }
           });
         }
@@ -174,7 +175,7 @@
             const method = String((init && init.method) || (isReq && input.method) || "GET").toUpperCase();
             const handle = classify(url, bodyStr, { headers, method });
             if (!handle) return;
-            p.then((res) => res.clone().text().then((t) => handle(t, res.ok)).catch(noop)).catch(noop);
+            p.then((res) => res.clone().text().then((t) => handle(t, res.ok, res.status)).catch(noop)).catch(noop);
           }).catch(noop);
         }
       } catch (e) { /* ніколи не ламаємо сторінку */ }

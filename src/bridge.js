@@ -149,6 +149,13 @@
     try { chrome.storage.local.set({ [TPL_KEY]: all }); } catch (e) { /* ignore */ }
   };
 
+  // Журнал власних growth-запитів сторінки (останні 10): чи вдалось їй самій завантажити Insights.
+  const pageLog = [];
+  const handlePageGrowth = (m) => {
+    pageLog.push({ at: nowIso(), status: m.status, promptId: m.promptId || null, message: m.message || undefined });
+    while (pageLog.length > 10) pageLog.shift();
+  };
+
   window.addEventListener("message", (ev) => {
     if (ev.source !== window) return;
     const m = ev.data;
@@ -156,6 +163,7 @@
     if (m.kind === "niche") handleNiche(m);
     else if (m.kind === "insight") handleInsight(m);
     else if (m.kind === "growthTemplate") handleTemplate(m);
+    else if (m.kind === "pageGrowth") handlePageGrowth(m);
   });
 
   // ---- активний дозбір відсутніх інсайтів (на запит попапу) ----
@@ -192,6 +200,21 @@
     };
   };
 
+  // Текст пояснення з відповіді growth-агента (messages[].payload / message / errors), без HTML.
+  const amazonMessage = (raw) => {
+    const j = (() => { try { return JSON.parse(raw); } catch (e) { return null; } })();
+    if (!j) return "";
+    const parts = [];
+    (Array.isArray(j.messages) ? j.messages : []).forEach((m) => {
+      if (!m) return;
+      ["payload", "text", "message", "errorMessage"].forEach((k) => { if (typeof m[k] === "string") parts.push(m[k]); });
+      if (m.type) parts.push("[" + m.type + "]");
+    });
+    ["message", "errorMessage", "error", "errorCode", "code", "reason"].forEach((k) => { if (typeof j[k] === "string") parts.push(j[k]); });
+    if (Array.isArray(j.errors)) j.errors.forEach((e) => { if (e && e.message) parts.push(e.message); });
+    return parts.join(" ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 500);
+  };
+
   const fetchInsight = async (req) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -206,8 +229,13 @@
       clearTimeout(timer);
       if (!r.ok) {
         let detail = "";
-        try { detail = (await r.text()).replace(/\s+/g, " ").slice(0, 200); } catch (e) { /* ignore */ }
-        return { error: "http " + r.status, status: r.status, detail };
+        let message = "";
+        try {
+          const raw = await r.text();
+          detail = raw.replace(/\s+/g, " ").slice(0, 3000);
+          message = amazonMessage(raw);
+        } catch (e) { /* ignore */ }
+        return { error: "http " + r.status, status: r.status, detail, message };
       }
       const j = await r.json();
       const msgs = j && Array.isArray(j.messages) ? j.messages : [];
@@ -250,7 +278,7 @@
           steps.push({
             promptId: pid, attempt, ms: Date.now() - t0,
             status: res.html ? "ok" : res.error, len: res.html ? res.html.length : 0,
-            template: !!tpl, detail: res.detail || undefined,
+            template: !!tpl, detail: res.detail || undefined, message: res.message || undefined,
           });
           if (res.html) { entry = { capturedAt: nowIso(), html: res.html, via: "active" }; break; }
           entry = { error: res.error, via: "active" };
@@ -272,7 +300,8 @@
         await persist();
       }
       notify({ nicheId, done: ids.length, total: ids.length });
-      return { insights, steps, templateUsed: !!tpl, rejected: rejected || undefined };
+      const amazonSays = (steps.find((x) => x.message) || {}).message;
+      return { insights, steps, templateUsed: !!tpl, rejected: rejected || undefined, amazonMessage: amazonSays, pageRequests: pageLog.slice() };
     } finally {
       collecting = null;
     }

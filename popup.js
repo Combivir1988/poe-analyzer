@@ -224,7 +224,12 @@ btn.addEventListener("click", async () => {
       }, COLLECT_TIMEOUT_MS);
       if (resp && resp.error) dbg.collectError = resp.error;
       if (resp && resp.steps) dbg.steps = resp.steps;
-      if (resp) { dbg.templateUsed = !!resp.templateUsed; if (resp.rejected) dbg.rejected = resp.rejected; }
+      if (resp) {
+        dbg.templateUsed = !!resp.templateUsed;
+        if (resp.rejected) dbg.rejected = resp.rejected;
+        if (resp.amazonMessage) dbg.amazonMessage = resp.amazonMessage;
+        if (resp.pageRequests) dbg.pageRequests = resp.pageRequests;
+      }
       dbg.collectResponse = resp && resp.insights
         ? Object.keys(resp.insights).map((k) => k + "=" + (resp.insights[k].error ? "ERR:" + resp.insights[k].error : "ok/" + (resp.insights[k].html || "").length))
         : (resp ? "no insights key" : "null response");
@@ -247,7 +252,12 @@ btn.addEventListener("click", async () => {
       ? "Дозбір не вдався: сторінку ніші було відкрито до встановлення/оновлення розширення. Оновіть її (F5), дочекайтеся завантаження і завантажте ще раз."
       : "Дозбір не вдався (" + esc(dbg.collectError) + "). Файл збережено з тим, що вже спіймано."}</div>`;
   } else if (dbg.rejected) {
-    statusEl.innerHTML += `<div class="hint err">Amazon відхилив запит Insights на цьому маркетплейсі (${esc(dbg.rejected)}), решту запитів не надсилав. ` +
+    const pageFailed = (dbg.pageRequests || []).filter((x) => x.status && x.status !== 200).length;
+    const pageOk = (dbg.pageRequests || []).filter((x) => x.status === 200).length;
+    statusEl.innerHTML += `<div class="hint err">Amazon відхилив запит Insights на цьому маркетплейсі (${esc(dbg.rejected)}), решту запитів не надсилав.` +
+      (dbg.amazonMessage ? ` Відповідь Amazon: «${esc(dbg.amazonMessage)}».` : "") +
+      (pageFailed && !pageOk ? ` Сама сторінка теж отримала відмову (${pageFailed}×) — схоже, на цьому маркетплейсі Insights недоступні.` : "") +
+      " " +
       "Якщо на сторінці ніші є блок Top Niche Insights — відкрийте вручну будь-яку його вкладку і дочекайтеся тексту. " +
       "Розширення запам'ятає справжній формат запиту цього маркетплейсу, і наступне «Завантажити JSON» дозбере решту. " +
       "Якщо блоку немає — Insights тут недоступні, а всі інші дані ніші у файлі є.</div>";
