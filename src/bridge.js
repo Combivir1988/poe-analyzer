@@ -385,10 +385,14 @@
         if (!prev || (!prev.title && title)) out.set(id, { nicheId: id, title: title || (prev && prev.title) || null });
       });
     } catch (e) { /* ignore */ }
+    // Посилання з таблиці — головне джерело. Ніші з фонових відповідей (блок «нещодавні/збережені»)
+    // додаються лише тоді, коли в таблиці посилань немає, і тільки з назвою.
+    const fromTable = out.size > 0;
     refs.forEach((r) => {
       if (r.href !== window.location.href) return;
       const prev = out.get(r.nicheId);
-      out.set(r.nicheId, { nicheId: r.nicheId, title: (prev && prev.title) || r.title || null, obfuscatedMarketplaceId: r.obfuscatedMarketplaceId });
+      if (prev) { out.set(r.nicheId, Object.assign({}, prev, { title: prev.title || r.title, obfuscatedMarketplaceId: r.obfuscatedMarketplaceId })); return; }
+      if (!fromTable && r.title) out.set(r.nicheId, { nicheId: r.nicheId, title: r.title, obfuscatedMarketplaceId: r.obfuscatedMarketplaceId });
     });
     const current = nicheIdFromHref(window.location.href);
     if (current) out.delete(current);
@@ -507,8 +511,8 @@
   chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     if (!req || typeof req.type !== "string") return;
     if (req.type === "poea:ping") {
-      sendResponse({ ok: true, origin: window.location.origin, href: window.location.href });
-      return;
+      getKey(NICHE_TPL_KEY).then((all) => sendResponse({ ok: true, origin: ORIGIN, href: window.location.href, hasNicheTemplate: !!((all || {})[ORIGIN]) }));
+      return true;
     }
     if (req.type === "poea:list") {
       listNiches().then(sendResponse).catch((e) => sendResponse({ niches: [], error: String(e) }));

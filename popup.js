@@ -186,6 +186,12 @@ async function init() {
   state.record = rec;
   renderMain();
   renderOthers();
+  try {
+    const pong = await askBridge(state.tab.id, { type: "poea:ping" }, 3000);
+    statusEl.innerHTML += pong && pong.hasNicheTemplate
+      ? '<div class="hint ok">✓ Формат запиту ніші збережено — на сторінці пошуку можна збирати кілька ніш одразу.</div>'
+      : '<div class="hint">Формат запиту ще не збережено: оновіть цю сторінку (F5) і дочекайтеся завантаження.</div>';
+  } catch (e) { /* немає моста — підказка нижче при завантаженні */ }
 }
 
 // ---- прогрес дозбору від моста ----
@@ -329,8 +335,8 @@ async function initBatch() {
   batchEl.hidden = false;
   const niches = (info && info.niches) || [];
   if (!info.hasTemplate) {
-    batchHint.innerHTML = "<b>Один раз:</b> відкрийте будь-яку нішу на цьому маркетплейсі й дочекайтеся завантаження — " +
-      "розширення запам'ятає формат запиту. Потім поверніться сюди.";
+    batchHint.innerHTML = "<b>Один раз:</b> відкрийте будь-яку нішу зі списку нижче (саме після оновлення розширення), " +
+      "дочекайтеся завантаження — у попапі з'явиться «✓ Формат запиту ніші збережено». Потім поверніться сюди.";
     batchStartBtn.dataset.blocked = "1";
   } else if (!niches.length) {
     batchHint.textContent = "На сторінці не знайдено посилань на ніші. Відкрийте пошук або список ніш і дочекайтеся таблиці.";
