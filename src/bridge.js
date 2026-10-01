@@ -112,7 +112,7 @@
         nicheId: nid,
         nicheTitle: mergedNiche.nicheTitle || (prev.meta && prev.meta.nicheTitle) || "niche",
         obfuscatedMarketplaceId: mergedNiche.obfuscatedMarketplaceId || (prev.meta && prev.meta.obfuscatedMarketplaceId) || null,
-        pageUrl: window.location.href,
+        pageUrl: m.pageUrl || window.location.href,
         schemaVersion: SCHEMA_VERSION,
         source: SOURCE,
       },
@@ -165,6 +165,8 @@
     else if (m.kind === "insight") handleInsight(m);
     else if (m.kind === "growthTemplate") handleTemplate(m);
     else if (m.kind === "pageGrowth") handlePageGrowth(m);
+    else if (m.kind === "nicheTemplate") handleNicheTemplate(m);
+    else if (m.kind === "nicheRefs") handleRefs(m);
   });
 
   // ---- активний дозбір відсутніх інсайтів (на запит попапу) ----
@@ -257,20 +259,18 @@
     } catch (e) { /* попап закрито — ок */ }
   };
 
-  const collectMissing = async ({ nicheId, obfuscatedMarketplaceId, promptIds }) => {
+  // Дозбір відсутніх Insights для однієї ніші. Захист від паралельних запусків — у викликачів.
+  const runCollect = async ({ nicheId, obfuscatedMarketplaceId, promptIds }) => {
     const ids = Array.isArray(promptIds) ? promptIds : [];
     const insights = {};
     const steps = [];
     if (!ids.length) return { insights, steps };
-    if (collecting) return { insights, steps, error: "busy" };
-    collecting = nicheId;
     const tpl = (await readTemplates())[ORIGIN] || null;
     // Маркетплейс, де Amazon уже сказав «Unsupported Locale», більше не питаємо.
     const unsupported = await new Promise((resolve) => {
       try { chrome.storage.local.get(UNSUP_KEY, (r) => resolve(((r && r[UNSUP_KEY]) || {})[ORIGIN] || null)); } catch (e) { resolve(null); }
     });
     if (unsupported && !tpl) {
-      collecting = null;
       ids.forEach((pid) => { insights[pid] = { error: "unavailable on this marketplace", via: "active" }; });
       return { insights, steps, unavailable: true, amazonMessage: unsupported.message };
     }
@@ -322,7 +322,184 @@
         } catch (e) { /* ignore */ }
       }
       return { insights, steps, templateUsed: !!tpl, rejected: rejected || undefined, amazonMessage: amazonSays, unavailable, pageRequests: pageLog.slice() };
+    } finally { /* стан collecting веде викликач */ }
+  };
+
+  const collectMissing = async (args) => {
+    if (collecting) return { insights: {}, steps: [], error: "busy" };
+    collecting = args.nicheId;
+    try { return await runCollect(args); } finally { collecting = null; }
+  };
+
+  // ---- пакетний збір кількох ніш зі сторінки пошуку ----
+  // Кожну нішу запитуємо тим самим getNiche, яким сторінка відкриває нішу сама
+  // (шаблон запам'ятовується при першому відкритті будь-якої ніші на цьому домені),
+  // строго по одній, з людськими паузами. Стан черги — у storage, щоб попап можна було закрити.
+  const NICHE_TPL_KEY = "poea_niche_tpl";
+  const BATCH_KEY = "poea_batch";
+  const BATCH_MAX = MAX_NICHES;
+  const NICHE_GAP_MIN_MS = 3000;
+  const NICHE_GAP_MAX_MS = 6000;
+  const ALL_PROMPTS = [
+    "OX_NICHE_MARKET_POTENTIAL_PROMPT", "OX_NICHE_PRODUCT_FEATURE_EXTRACTOR_PROMPT", "OX_NICHE_REVIEWS_ANALYZER_PROMPT",
+    "OX_NICHE_CUSTOMER_DEMOGRAPHICS_PROMPT", "OX_NICHE_SEARCH_TERMS_PROMPT", "OX_NICHE_PRICING_ANALYSIS_PROMPT",
+  ];
+
+  const getKey = (key) => new Promise((resolve) => {
+    try { chrome.storage.local.get(key, (r) => resolve((r && r[key]) || null)); } catch (e) { resolve(null); }
+  });
+  const setKey = (key, val) => new Promise((resolve) => {
+    try { chrome.storage.local.set({ [key]: val }, () => resolve()); } catch (e) { resolve(); }
+  });
+
+  const handleNicheTemplate = async (m) => {
+    if (!m.url || !m.body || !m.nicheId) return;
+    const all = (await getKey(NICHE_TPL_KEY)) || {};
+    all[ORIGIN] = { url: m.url, method: m.method || "POST", headers: m.headers || {}, body: m.body,
+      nicheId: m.nicheId, obfuscatedMarketplaceId: m.obfuscatedMarketplaceId || null, capturedAt: nowIso() };
+    await setKey(NICHE_TPL_KEY, all);
+  };
+
+  // nicheId → { nicheId, title, obfuscatedMarketplaceId, href }, з відповідей сторінки
+  const refs = new Map();
+  const handleRefs = (m) => {
+    (m.refs || []).forEach((r) => {
+      if (!r || !r.nicheId) return;
+      const prev = refs.get(r.nicheId) || {};
+      refs.set(r.nicheId, { nicheId: r.nicheId, title: r.title || prev.title || null,
+        obfuscatedMarketplaceId: r.obfuscatedMarketplaceId || prev.obfuscatedMarketplaceId || null, href: window.location.href });
+    });
+  };
+
+  const nicheIdFromHref = (href) => { const x = String(href || "").match(/\/niche\/([^/?#]+)/); return x ? decodeURIComponent(x[1]) : null; };
+
+  // Ніші на поточній сторінці: посилання в таблиці + те, що прийшло у відповідях саме на цій сторінці.
+  const listNiches = async () => {
+    const out = new Map();
+    try {
+      document.querySelectorAll('a[href*="/niche/"]').forEach((a) => {
+        const id = nicheIdFromHref(a.getAttribute("href"));
+        if (!id) return;
+        const title = (a.textContent || "").replace(/\s+/g, " ").trim();
+        const prev = out.get(id);
+        if (!prev || (!prev.title && title)) out.set(id, { nicheId: id, title: title || (prev && prev.title) || null });
+      });
+    } catch (e) { /* ignore */ }
+    refs.forEach((r) => {
+      if (r.href !== window.location.href) return;
+      const prev = out.get(r.nicheId);
+      out.set(r.nicheId, { nicheId: r.nicheId, title: (prev && prev.title) || r.title || null, obfuscatedMarketplaceId: r.obfuscatedMarketplaceId });
+    });
+    const current = nicheIdFromHref(window.location.href);
+    if (current) out.delete(current);
+    const tpl = ((await getKey(NICHE_TPL_KEY)) || {})[ORIGIN] || null;
+    const unsup = ((await getKey(UNSUP_KEY)) || {})[ORIGIN] || null;
+    return { niches: Array.from(out.values()), hasTemplate: !!tpl, insightsUnavailable: !!unsup, batch: await getKey(BATCH_KEY) };
+  };
+
+  // Замінити всі входження рядка from на to у глибокій копії.
+  const substitute = (obj, from, to) => {
+    if (!from || from === to) return JSON.parse(JSON.stringify(obj));
+    const walk = (o) => {
+      if (typeof o === "string") return o === from ? to : o;
+      if (Array.isArray(o)) return o.map(walk);
+      if (o && typeof o === "object") { const r = {}; Object.keys(o).forEach((k) => { r[k] = walk(o[k]); }); return r; }
+      return o;
+    };
+    return walk(obj);
+  };
+
+  const fetchNiche = async (tpl, nicheId, mkt) => {
+    let body = substitute(tpl.body, tpl.nicheId, nicheId);
+    if (mkt && tpl.obfuscatedMarketplaceId) body = substitute(body, tpl.obfuscatedMarketplaceId, mkt);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const r = await fetch(tpl.url, {
+        method: tpl.method || "POST", credentials: "include",
+        headers: Object.assign({ "content-type": "application/json" }, tpl.headers || {}),
+        body: JSON.stringify(body), signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const text = await r.text();
+      if (!r.ok) return { error: "http " + r.status, status: r.status, detail: text.replace(/\s+/g, " ").slice(0, 500) };
+      const j = JSON.parse(text);
+      if (j && j.data && j.data.niche && j.data.niche.nicheId) return { data: j.data, variables: body.variables || null };
+      const err = j && Array.isArray(j.errors) && j.errors[0] && j.errors[0].message;
+      return { error: err ? "graphql: " + err : "empty" };
+    } catch (e) {
+      clearTimeout(timer);
+      return { error: e && e.name === "AbortError" ? "timeout" : String(e) };
+    }
+  };
+
+  let batchStop = false;
+  const saveBatch = (state) => setKey(BATCH_KEY, Object.assign({}, state, { updatedAt: nowIso() }));
+
+  const runBatch = async ({ niches, withInsights }) => {
+    const tpl = ((await getKey(NICHE_TPL_KEY)) || {})[ORIGIN];
+    const list = (niches || []).slice(0, BATCH_MAX);
+    const state = {
+      origin: ORIGIN, status: "running", startedAt: nowIso(), withInsights: !!withInsights,
+      total: list.length, done: 0, current: null,
+      items: list.map((n) => ({ nicheId: n.nicheId, title: n.title || n.nicheId, status: "queued", insights: 0 })),
+    };
+    batchStop = false;
+    await saveBatch(state);
+    let insightsOff = !!(((await getKey(UNSUP_KEY)) || {})[ORIGIN]);
+    try {
+      for (let i = 0; i < list.length; i++) {
+        if (batchStop) { state.status = "stopped"; break; }
+        const n = list[i];
+        const item = state.items[i];
+        state.current = item.title;
+        item.status = "niche";
+        await saveBatch(state);
+
+        const mkt = n.obfuscatedMarketplaceId || tpl.obfuscatedMarketplaceId;
+        let res = await fetchNiche(tpl, n.nicheId, mkt);
+        if (res.error && (!res.status || res.status === 429 || res.status >= 500)) {
+          await sleep(RETRY_DELAY_MS * 2);
+          res = await fetchNiche(tpl, n.nicheId, mkt);
+        }
+        if (res.error) {
+          item.status = "error";
+          item.error = res.error + (res.detail ? " — " + res.detail.slice(0, 200) : "");
+        } else {
+          handleNiche({
+            data: res.data, variables: res.variables,
+            pageUrl: ORIGIN + "/opportunity-explorer/explore/niche/" + encodeURIComponent(n.nicheId) + "/insights-trends",
+          });
+          await persist();
+          const nid = res.data.niche.nicheId;
+          item.nicheId = nid;
+          item.title = res.data.niche.nicheTitle || item.title;
+          item.status = "ok";
+          if (withInsights && !insightsOff && !batchStop) {
+            item.status = "insights";
+            await saveBatch(state);
+            const have = (cache[nid] && cache[nid].insights) || {};
+            const missing = ALL_PROMPTS.filter((pid) => !(have[pid] && have[pid].html));
+            const ins = await runCollect({ nicheId: nid, obfuscatedMarketplaceId: res.data.niche.obfuscatedMarketplaceId, promptIds: missing });
+            if (ins.unavailable) insightsOff = true;
+            item.status = "ok";
+          }
+          const rec = cache[nid];
+          item.insights = rec && rec.insights ? ALL_PROMPTS.filter((pid) => rec.insights[pid] && rec.insights[pid].html).length : 0;
+        }
+        state.done = i + 1;
+        state.insightsUnavailable = insightsOff;
+        await saveBatch(state);
+        if (i < list.length - 1 && !batchStop) await sleep(jitter(NICHE_GAP_MIN_MS, NICHE_GAP_MAX_MS));
+      }
+      if (state.status === "running") state.status = "done";
+    } catch (e) {
+      state.status = "error";
+      state.error = String(e);
     } finally {
+      state.current = null;
+      state.finishedAt = nowIso();
+      await saveBatch(state);
       collecting = null;
     }
   };
@@ -331,6 +508,27 @@
     if (!req || typeof req.type !== "string") return;
     if (req.type === "poea:ping") {
       sendResponse({ ok: true, origin: window.location.origin, href: window.location.href });
+      return;
+    }
+    if (req.type === "poea:list") {
+      listNiches().then(sendResponse).catch((e) => sendResponse({ niches: [], error: String(e) }));
+      return true;
+    }
+    if (req.type === "poea:batchStart") {
+      (async () => {
+        if (collecting) return sendResponse({ error: "busy" });
+        const tpl = ((await getKey(NICHE_TPL_KEY)) || {})[ORIGIN];
+        if (!tpl) return sendResponse({ error: "no-template" });
+        if (!Array.isArray(req.niches) || !req.niches.length) return sendResponse({ error: "empty" });
+        collecting = "batch";
+        runBatch(req); // іде у фоні на сторінці; прогрес — у storage
+        sendResponse({ started: true });
+      })();
+      return true;
+    }
+    if (req.type === "poea:batchStop") {
+      batchStop = true;
+      sendResponse({ ok: true });
       return;
     }
     if (req.type === "poea:collect") {

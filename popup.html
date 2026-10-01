@@ -57,6 +57,21 @@
     }
     a { color: #007185; cursor: pointer; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    .batch { margin-top: 12px; }
+    .batch .list { max-height: 210px; overflow-y: auto; margin-top: 6px; border: 1px solid #ededed; border-radius: 6px; }
+    .batch label.row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 12px; border-bottom: 1px solid #f3f3f3; cursor: pointer; }
+    .batch label.row:last-child { border-bottom: 0; }
+    .batch label.row span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .batch .opt { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; color: #565959; }
+    .batch .prog { margin-top: 8px; font-size: 12px; line-height: 1.6; }
+    .batch .prog .st { color: #565959; white-space: nowrap; }
+    .batch .prog .row { display: flex; gap: 8px; }
+    .batch .prog .row span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    button.secondary {
+      margin-top: 8px; width: 100%; padding: 8px; font-size: 13px; font-family: inherit;
+      background: #fff; border: 1px solid #d5d9d9; border-radius: 8px; cursor: pointer;
+    }
+    button.secondary:disabled { color: #999; cursor: default; }
   </style>
 </head>
 <body>
@@ -65,6 +80,15 @@
     <div class="status" id="status">Перевіряю…</div>
     <ul class="tabs" id="tabs" hidden></ul>
     <button class="primary" id="download" disabled>Завантажити JSON</button>
+    <div class="batch" id="batch" hidden>
+      <div class="hint" id="batchHint"></div>
+      <div class="list" id="batchList"></div>
+      <label class="opt"><input type="checkbox" id="batchInsights" checked> також дозбирати Top Niche Insights</label>
+      <button class="primary" id="batchStart" disabled>Зібрати вибрані</button>
+      <div class="prog" id="batchProg" hidden></div>
+      <button class="secondary" id="batchStop" hidden>Зупинити</button>
+      <button class="secondary" id="batchDownload" hidden>Завантажити всі</button>
+    </div>
     <div class="others" id="others" hidden>
       <h4>Інші збережені ніші</h4>
       <div id="othersList"></div>

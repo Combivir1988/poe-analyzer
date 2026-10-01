@@ -43,6 +43,21 @@ The popup lists the last 8 captured niches; any of them can be downloaded as-is
 **Acceptance**: storage capped at 8 by recency; two tabs capturing different niches
 do not overwrite each other; "Clear" wipes storage.
 
+### US4 — Collect several niches from a list page (P1, added 2026-10-01, v1.1.0)
+On a POE search/list page the popup lists the niches found on the page (table
+links + niche references in the page's own GraphQL responses), lets the seller
+tick up to 8 and collects them in one run. Each niche is fetched by replaying the
+page's own successful `getNiche` request (URL, headers, body; nicheId and
+marketplace substituted), recorded the first time any niche is opened on that
+origin. Strictly sequential, 3–6 s jitter between niches, optional Insights
+top-up per niche (skipped where the marketplace reports "Unsupported Locale").
+The queue runs in the page (popup may close), state in `chrome.storage.local`
+(`poea_batch`), stop button, "download all" = one schemaVersion-1 file per niche.
+
+**Acceptance**: without a recorded template the start button is blocked with a
+one-time instruction; a failed niche does not stop the queue; every collected
+niche gets its own `meta.pageUrl`.
+
 ## Functional Requirements
 
 - FR-001 Passive capture of `POST */ox-api/graphql` with `operationName=getNiche`

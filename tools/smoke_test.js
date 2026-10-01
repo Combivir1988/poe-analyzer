@@ -25,11 +25,25 @@ class FakeResponse {
 const growthReply = (pid) => JSON.stringify({ messages: [{ payload: (sample.insights[pid] || {}).html || "" }] });
 
 let growthCalls = [];
+let nicheCalls = [];
 let growthHeaders = [];
 let growthStatus = 200; // перемикач для сценарію «маркетплейс відхиляє запит»
 const realFetch = (input, init) => {
   const url = typeof input === "string" ? input : input.url;
-  if (url.includes("/ox-api/graphql")) return Promise.resolve(new FakeResponse(JSON.stringify({ data: sample.data })));
+  if (url.includes("/ox-api/graphql")) {
+    const b = JSON.parse(init.body || "{}");
+    if (b.operationName === "searchNiches") {
+      return Promise.resolve(new FakeResponse(JSON.stringify({ data: { search: { results: [
+        { nicheId: "niche-A", nicheTitle: "paper food trays", obfuscatedMarketplaceId: sample.meta.obfuscatedMarketplaceId },
+        { nicheId: "niche-B", nicheTitle: "nacho boats", obfuscatedMarketplaceId: sample.meta.obfuscatedMarketplaceId },
+      ] } } })));
+    }
+    // getNiche: віддаємо зразкову нішу під запитаним id (як зробив би Amazon)
+    const want = b.variables && b.variables.nicheInput && b.variables.nicheInput.nicheId;
+    nicheCalls.push(want);
+    const niche = Object.assign({}, sample.data.niche, want ? { nicheId: want, nicheTitle: want === sample.meta.nicheId ? sample.meta.nicheTitle : "title " + want } : {});
+    return Promise.resolve(new FakeResponse(JSON.stringify({ data: { niche } })));
+  }
   if (url.includes("/insightswidget-api/growth")) {
     const body = JSON.parse(init.body);
     growthCalls.push(body.promptContext.promptId);
@@ -131,6 +145,25 @@ const assert = (c, m) => { if (!c) { console.error("FAIL:", m); process.exit(1);
   assert(growthCalls.length === 1 && rej.rejected === "http 400", "bridge: після 400 без шаблону — рівно 1 запит замість 9, причина у відповіді");
   assert(rej.steps[0].detail && rej.steps[0].detail.includes("Bad Request"), "bridge: текст відмови Amazon потрапляє в _debug");
   growthStatus = 200;
+
+  // 6) пакетний збір: шаблон getNiche + список ніш зі сторінки пошуку
+  assert(storage.poea_niche_tpl && storage.poea_niche_tpl[ORIGIN] && storage.poea_niche_tpl[ORIGIN].nicheId === sample.meta.nicheId,
+    "bridge: шаблон getNiche збережено");
+  await win.fetch(ORIGIN + "/ox-api/graphql", { method: "POST", body: JSON.stringify({ operationName: "searchNiches", variables: { q: "paper food boats" } }) });
+  await sleep(20);
+  const list = await new Promise((resolve) => runtimeListeners.forEach((fn) => fn({ type: "poea:list" }, {}, resolve)));
+  assert(list.hasTemplate && list.niches.length === 2 && list.niches[1].title === "nacho boats", "bridge: ніші зі сторінки пошуку знайдено (" + list.niches.length + ")");
+  nicheCalls = [];
+  const started = await new Promise((resolve) => runtimeListeners.forEach((fn) => fn({ type: "poea:batchStart", niches: list.niches, withInsights: false }, {}, resolve)));
+  assert(started && started.started, "bridge: пакетний збір стартував");
+  const tb = Date.now();
+  while (!(storage.poea_batch && storage.poea_batch.status !== "running") && Date.now() - tb < 20000) await sleep(100);
+  const b = storage.poea_batch;
+  assert(b.status === "done" && b.items.every((x) => x.status === "ok"), "bridge: пакет завершено, обидві ніші ok");
+  assert(JSON.stringify(nicheCalls) === JSON.stringify(["niche-A", "niche-B"]), "bridge: getNiche по черзі з підставленим nicheId");
+  assert(Date.now() - tb >= 3000, "bridge: пауза між нішами (" + (Date.now() - tb) + " мс)");
+  assert(storage.poea_niches["niche-A"] && storage.poea_niches["niche-B"] && storage.poea_niches["niche-B"].meta.pageUrl.includes("/niche/niche-B/"),
+    "bridge: обидві ніші збережено зі своїм pageUrl");
 
   // 5) ping
   const pong = await new Promise((resolve) => runtimeListeners.forEach((fn) => fn({ type: "poea:ping" }, {}, resolve)));

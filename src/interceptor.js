@@ -58,6 +58,27 @@
   };
 
   // Повертає обробник відповіді для запиту, який нас цікавить, або null.
+  // Будь-яка відповідь ox-api (пошук, категорії, «нещодавні») може містити посилання на ніші —
+  // збираємо пари nicheId + назва, щоб попап міг запропонувати пакетний збір.
+  const postRefs = (json) => {
+    if (!json) return;
+    const refs = [];
+    const seen = new Set();
+    const walk = (o, depth) => {
+      if (!o || typeof o !== "object" || depth > 10 || refs.length > 200) return;
+      if (Array.isArray(o)) { o.forEach((x) => walk(x, depth + 1)); return; }
+      if (typeof o.nicheId === "string" && !seen.has(o.nicheId)) {
+        const title = o.nicheTitle || o.title || o.customerNeed || o.name || o.displayName || null;
+        seen.add(o.nicheId);
+        refs.push({ nicheId: o.nicheId, title: typeof title === "string" ? title : null,
+          obfuscatedMarketplaceId: typeof o.obfuscatedMarketplaceId === "string" ? o.obfuscatedMarketplaceId : null });
+      }
+      Object.keys(o).forEach((k) => walk(o[k], depth + 1));
+    };
+    try { walk(json, 0); } catch (e) { /* ignore */ }
+    if (refs.length) post({ kind: "nicheRefs", refs });
+  };
+
   // meta = { headers, method } — щоб запам'ятати справжній формат запиту сторінки.
   const classify = (url, bodyStr, meta) => {
     const body = parse(bodyStr);
@@ -66,15 +87,27 @@
     if (url.includes(OX_PATH)) {
       // одиночна GraphQL-операція
       if (!Array.isArray(body)) {
-        if (!WANTED_OPS.has(body.operationName)) return null;
-        return (text) => {
+        if (!WANTED_OPS.has(body.operationName)) return (text) => postRefs(parse(text));
+        return (text, ok) => {
           const j = parse(text);
           if (j && j.data) post({ kind: "niche", op: body.operationName, variables: body.variables || null, data: j.data });
+          // Робочий шаблон getNiche для пакетного збору ніш зі сторінки пошуку.
+          if (ok && j && j.data && j.data.niche && j.data.niche.nicheId) {
+            post({
+              kind: "nicheTemplate",
+              url: absUrl(url),
+              method: (meta && meta.method) || "POST",
+              headers: (meta && meta.headers) || {},
+              body,
+              nicheId: j.data.niche.nicheId,
+              obfuscatedMarketplaceId: j.data.niche.obfuscatedMarketplaceId || null,
+            });
+          }
         };
       }
       // батч операцій: відповідь — масив у тому ж порядку
       const idx = body.findIndex((op) => op && WANTED_OPS.has(op.operationName));
-      if (idx < 0) return null;
+      if (idx < 0) return (text) => postRefs(parse(text));
       return (text) => {
         const j = parse(text);
         const item = Array.isArray(j) ? j[idx] : null;

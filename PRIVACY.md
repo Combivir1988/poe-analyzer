@@ -16,6 +16,12 @@ JSON file for offline analysis.
   "Top Niche Insights" tabs were not opened, the extension requests them from
   the same Seller Central endpoint the page uses, from your own session, one at a
   time, with pauses. No request is made without your click.
+- **Collects several niches only when you click "Collect selected".** On a Product
+  Opportunity Explorer list or search page you may tick up to 8 niches. The
+  extension then requests each niche's data from the same Seller Central
+  endpoint the page uses when you open a niche — from your own session, one
+  niche at a time, with pauses of several seconds. Nothing is requested without
+  your click, and you can stop the queue at any time.
 - **Stores locally.** Captured niches (the last 8) are kept in
   `chrome.storage.local` on your device. You can delete them at any time with
   the "Clear" link in the popup or by removing the extension.

@@ -171,8 +171,10 @@ async function init() {
   }
   state.nicheId = nicheIdFromUrl(url);
   if (!state.nicheId) {
-    noData("Це не сторінка конкретної ніші. Відкрийте нішу (сторінка з метриками і Top Niche Insights).");
+    noData("Тут немає однієї ніші, але можна зібрати кілька ніш зі сторінки одразу.");
+    btn.hidden = true;
     renderOthers();
+    await initBatch();
     return;
   }
   const rec = state.byNiche[state.nicheId];
@@ -269,6 +271,120 @@ btn.addEventListener("click", async () => {
     const failed = (Array.isArray(dbg.collectResponse) ? dbg.collectResponse : []).filter((s) => s.includes("ERR")).join(", ");
     statusEl.innerHTML += `<div class="hint err">Частину вкладок Amazon не віддав (${esc(failed)}). Спробуйте ще раз за хвилину — дозбираються лише відсутні.</div>`;
   }
+});
+
+// ---- пакетний збір ніш зі сторінки пошуку / списку ----
+const BATCH_KEY = "poea_batch";
+const BATCH_MAX = 8;
+const batchEl = $("batch");
+const batchList = $("batchList");
+const batchHint = $("batchHint");
+const batchStartBtn = $("batchStart");
+const batchProg = $("batchProg");
+const batchStopBtn = $("batchStop");
+const batchDlBtn = $("batchDownload");
+const ST = { queued: "у черзі", niche: "дані ніші…", insights: "Insights…", ok: "готово", error: "помилка" };
+
+const checkedNiches = () => Array.from(batchList.querySelectorAll("input[type=checkbox]:checked")).map((c) => ({
+  nicheId: c.dataset.nid, title: c.dataset.title || null, obfuscatedMarketplaceId: c.dataset.mkt || null,
+}));
+
+const updateStartBtn = () => {
+  const n = checkedNiches().length;
+  batchStartBtn.textContent = n ? `Зібрати вибрані (${n})` : "Зібрати вибрані";
+  batchStartBtn.disabled = !n || batchStartBtn.dataset.blocked === "1";
+};
+
+const renderBatchState = (b) => {
+  if (!b || !b.items) { batchProg.hidden = true; batchStopBtn.hidden = true; batchDlBtn.hidden = true; return; }
+  const running = b.status === "running";
+  batchProg.hidden = false;
+  const head = running
+    ? `Збираю ${Math.min(b.done + 1, b.total)} з ${b.total}${b.current ? ": <b>" + esc(b.current) + "</b>" : ""}… Попап можна закрити, вкладку — ні.`
+    : (b.status === "done" ? `Готово: ${b.items.filter((x) => x.status === "ok").length} з ${b.total} ніш.`
+      : b.status === "stopped" ? `Зупинено: зібрано ${b.items.filter((x) => x.status === "ok").length} з ${b.total}.`
+      : `Помилка збору: ${esc(b.error || "")}`);
+  batchProg.innerHTML = `<div>${head}</div>` + b.items.map((x) => `
+    <div class="row"><span title="${esc(x.error || x.title)}">${esc(x.title)}</span>
+    <span class="st">${esc(ST[x.status] || x.status)}${x.status === "ok" && b.withInsights ? " · " + x.insights + "/6" : ""}</span></div>`).join("") +
+    (b.insightsUnavailable && b.withInsights ? `<div class="hint">Top Niche Insights на цьому маркетплейсі недоступні — зібрано решту даних.</div>` : "") +
+    (b.items.some((x) => x.status === "error") ? `<div class="hint err">Помилка: ${esc((b.items.find((x) => x.status === "error") || {}).error || "")}</div>` : "");
+  batchStopBtn.hidden = !running;
+  batchStartBtn.dataset.blocked = running ? "1" : "";
+  updateStartBtn();
+  const okCount = b.items.filter((x) => x.status === "ok").length;
+  batchDlBtn.hidden = running || !okCount;
+  batchDlBtn.textContent = `Завантажити всі (${okCount} файлів)`;
+};
+
+async function initBatch() {
+  let info = null;
+  try { info = await askBridge(state.tab.id, { type: "poea:list" }, 5000); }
+  catch (e) {
+    batchEl.hidden = false;
+    batchHint.innerHTML = '<span class="err">Розширення ще не підключене до цієї вкладки — оновіть сторінку (F5) і відкрийте вікно знову.</span>';
+    batchStartBtn.hidden = true;
+    return;
+  }
+  batchEl.hidden = false;
+  const niches = (info && info.niches) || [];
+  if (!info.hasTemplate) {
+    batchHint.innerHTML = "<b>Один раз:</b> відкрийте будь-яку нішу на цьому маркетплейсі й дочекайтеся завантаження — " +
+      "розширення запам'ятає формат запиту. Потім поверніться сюди.";
+    batchStartBtn.dataset.blocked = "1";
+  } else if (!niches.length) {
+    batchHint.textContent = "На сторінці не знайдено посилань на ніші. Відкрийте пошук або список ніш і дочекайтеся таблиці.";
+    batchStartBtn.dataset.blocked = "1";
+  } else {
+    batchHint.innerHTML = `Знайдено ніш на сторінці: <b>${niches.length}</b>. За раз — до ${BATCH_MAX}, по одній, з паузами 3–6 с` +
+      " (з Insights ~30–40 с на нішу). Старіші збережені ніші понад 8 витіснятимуться.";
+  }
+  if (info.insightsUnavailable) $("batchInsights").checked = false;
+  batchList.innerHTML = niches.map((n, i) => `
+    <label class="row"><input type="checkbox" data-nid="${esc(n.nicheId)}" data-title="${esc(n.title || "")}" data-mkt="${esc(n.obfuscatedMarketplaceId || "")}" ${i < BATCH_MAX ? "checked" : ""}>
+    <span title="${esc(n.title || n.nicheId)}">${esc(n.title || n.nicheId)}</span></label>`).join("");
+  batchList.hidden = !niches.length;
+  batchList.querySelectorAll("input").forEach((c) => c.addEventListener("change", () => {
+    if (checkedNiches().length > BATCH_MAX) c.checked = false;
+    updateStartBtn();
+  }));
+  renderBatchState(info.batch);
+  updateStartBtn();
+}
+
+batchStartBtn.addEventListener("click", async () => {
+  const niches = checkedNiches();
+  if (!niches.length) return;
+  batchStartBtn.disabled = true;
+  try {
+    const r = await askBridge(state.tab.id, { type: "poea:batchStart", niches, withInsights: $("batchInsights").checked }, 5000);
+    if (r && r.error) batchHint.innerHTML = `<span class="err">Не вдалося почати: ${esc(r.error === "busy" ? "уже йде збір" : r.error === "no-template" ? "спершу відкрийте одну нішу на цьому маркетплейсі" : r.error)}</span>`;
+  } catch (e) {
+    batchHint.innerHTML = `<span class="err">Не вдалося почати: ${esc(String(e))}. Оновіть сторінку (F5).</span>`;
+  }
+  updateStartBtn();
+});
+
+batchStopBtn.addEventListener("click", async () => {
+  try { await askBridge(state.tab.id, { type: "poea:batchStop" }, 3000); } catch (e) { /* ignore */ }
+  batchStopBtn.disabled = true;
+});
+
+batchDlBtn.addEventListener("click", async () => {
+  const b = await new Promise((resolve) => chrome.storage.local.get(BATCH_KEY, (r) => resolve(r && r[BATCH_KEY])));
+  const store = await readStore();
+  const recs = ((b && b.items) || []).filter((x) => x.status === "ok").map((x) => store[x.nicheId]).filter((r) => r && r.meta && r.data);
+  for (const r of recs) {
+    const got = countInsights(r);
+    download(buildOutput(r, r.insights || {}, { batch: true, insightsFinal: got, missingCount: 6 - got }), filenameFor(r));
+    await new Promise((res) => setTimeout(res, 400));
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes[BATCH_KEY] && !batchEl.hidden) renderBatchState(changes[BATCH_KEY].newValue);
+  if (changes.poea_niches) { readStore().then((s2) => { state.byNiche = s2; renderOthers(); }); }
 });
 
 $("clear").addEventListener("click", async () => {
