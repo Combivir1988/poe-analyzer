@@ -306,6 +306,11 @@ const checkedNiches = () => Array.from(batchList.querySelectorAll("input[type=ch
 
 const updateStartBtn = () => {
   const n = checkedNiches().length;
+  if (batchStartBtn.dataset.mode === "prepare") {
+    batchStartBtn.textContent = "Підготувати збір";
+    batchStartBtn.disabled = !n || batchStartBtn.dataset.blocked === "1";
+    return;
+  }
   batchStartBtn.textContent = n ? `Зібрати вибрані (${n})` : "Зібрати вибрані";
   batchStartBtn.disabled = !n || batchStartBtn.dataset.blocked === "1";
 };
@@ -346,9 +351,12 @@ async function initBatch() {
   if (info.writeError) {
     batchHint.innerHTML = `<span class="err">Розширення не може записати дані: ${esc(info.writeError)}. Натисніть «Очистити» внизу, оновіть сторінку (F5) і спробуйте знову.</span>`;
     batchStartBtn.dataset.blocked = "1";
+  } else if (!info.hasTemplate && niches.length) {
+    batchHint.innerHTML = "Спершу розширенню треба один раз побачити, як сторінка завантажує нішу. " +
+      "Натисніть <b>«Підготувати збір»</b> — воно відкриє першу нішу у фоновій вкладці, запам'ятає формат і закриє її (до 40 с).";
+    batchStartBtn.dataset.mode = "prepare";
   } else if (!info.hasTemplate) {
-    batchHint.innerHTML = "<b>Один раз:</b> відкрийте будь-яку нішу зі списку нижче (саме після оновлення розширення), " +
-      "дочекайтеся завантаження — у попапі з'явиться «✓ Формат запиту ніші збережено». Потім поверніться сюди.";
+    batchHint.innerHTML = "Відкрийте будь-яку нішу на цьому маркетплейсі й дочекайтеся завантаження, потім поверніться сюди.";
     batchStartBtn.dataset.blocked = "1";
   } else if (!niches.length) {
     batchHint.textContent = "На сторінці не знайдено посилань на ніші. Відкрийте пошук або список ніш і дочекайтеся таблиці.";
@@ -370,9 +378,38 @@ async function initBatch() {
   updateStartBtn();
 }
 
+// Відкрити першу вибрану нішу у фоновій вкладці, дочекатися запису шаблону getNiche, закрити вкладку.
+async function prepareTemplate(niche) {
+  const origin = new URL(state.tab.url).origin;
+  const url = origin + "/opportunity-explorer/explore/niche/" + encodeURIComponent(niche.nicheId) + "/insights-trends";
+  batchStartBtn.disabled = true;
+  batchStartBtn.textContent = "Готую… (до 40 с)";
+  batchHint.innerHTML = `Відкриваю «${esc(niche.title || niche.nicheId)}» у фоновій вкладці…`;
+  const bg = await new Promise((resolve) => chrome.tabs.create({ url, active: false }, resolve));
+  const ok = await new Promise((resolve) => {
+    const done = (v) => { chrome.storage.onChanged.removeListener(onCh); clearTimeout(t); resolve(v); };
+    const onCh = (changes, area) => {
+      const tpl = area === "local" && changes.poea_niche_tpl && changes.poea_niche_tpl.newValue;
+      if (tpl && tpl[origin]) done(true);
+    };
+    const t = setTimeout(() => done(false), 40000);
+    chrome.storage.onChanged.addListener(onCh);
+  });
+  try { chrome.tabs.remove(bg.id); } catch (e) { /* ignore */ }
+  if (ok) {
+    batchStartBtn.dataset.mode = "";
+    batchHint.innerHTML = '<span class="ok">✓ Формат запиту ніші збережено.</span> Тепер можна збирати.';
+  } else {
+    batchHint.innerHTML = '<span class="err">Не вдалося: фонова сторінка ніші за 40 с не віддала дані. ' +
+      "Відкрийте цю нішу вручну, дочекайтеся графіків і подивіться в попапі на ній, що він пише — надішліть скриншот.</span>";
+  }
+  updateStartBtn();
+}
+
 batchStartBtn.addEventListener("click", async () => {
   const niches = checkedNiches();
   if (!niches.length) return;
+  if (batchStartBtn.dataset.mode === "prepare") { await prepareTemplate(niches[0]); return; }
   batchStartBtn.disabled = true;
   try {
     const r = await askBridge(state.tab.id, { type: "poea:batchStart", niches, withInsights: $("batchInsights").checked }, 5000);
