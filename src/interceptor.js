@@ -4,7 +4,8 @@
 // мережевий шар, тому бачить усі його fetch/XHR. Читає ТІЛЬКИ відповіді, які
 // сторінка й так завантажила у сесії користувача:
 //   * /ox-api/graphql            operationName=getNiche  → дані ніші
-//   * /insightswidget-api/growth promptId=OX_NICHE_*     → HTML вкладок Top Niche Insights
+//   * /insightswidget-api/*      promptId=OX_NICHE_*     → HTML вкладок Top Niche Insights
+//     + робочий шаблон запиту (URL, заголовки, тіло) для дозбору на цьому маркетплейсі
 // Своїх запитів не робить. Знайдене пересилає мосту (bridge.js) через postMessage.
 (() => {
   if (window.__poeAnalyzerHooked) return;
@@ -12,7 +13,11 @@
 
   const MARK = "__poeAnalyzer";
   const OX_PATH = "/ox-api/graphql";
-  const GROWTH_PATH = "/insightswidget-api/growth";
+  // Шлях growth-ендпоїнта може відрізнятися між маркетплейсами — ловимо весь
+  // insightswidget-api, а належність до Top Niche Insights визначаємо по тілу.
+  const GROWTH_PATH = "/insightswidget-api/";
+  // Заголовки, які не можна або не треба повторювати з розширення.
+  const SKIP_HEADERS = new Set(["content-length", "cookie", "host", "origin", "referer", "user-agent", "connection"]);
   const WANTED_OPS = new Set(["getNiche"]);
   const noop = () => {};
 
@@ -30,6 +35,18 @@
   const urlOf = (input) => {
     try { return typeof input === "string" ? input : (input && input.url) || ""; } catch (e) { return ""; }
   };
+  const absUrl = (u) => { try { return new URL(u, window.location.href).href; } catch (e) { return u; } };
+  const headersToObj = (h) => {
+    const out = {};
+    try {
+      if (!h) return out;
+      if (typeof Headers !== "undefined" && h instanceof Headers) h.forEach((v, k) => { out[k.toLowerCase()] = v; });
+      else if (Array.isArray(h)) h.forEach((pair) => { if (pair && pair.length >= 2) out[String(pair[0]).toLowerCase()] = String(pair[1]); });
+      else Object.keys(h).forEach((k) => { out[k.toLowerCase()] = String(h[k]); });
+    } catch (e) { /* ignore */ }
+    Object.keys(out).forEach((k) => { if (SKIP_HEADERS.has(k)) delete out[k]; });
+    return out;
+  };
   const interesting = (url) => url.includes(OX_PATH) || url.includes(GROWTH_PATH);
 
   const htmlFromGrowth = (json) => {
@@ -41,7 +58,8 @@
   };
 
   // Повертає обробник відповіді для запиту, який нас цікавить, або null.
-  const classify = (url, bodyStr) => {
+  // meta = { headers, method } — щоб запам'ятати справжній формат запиту сторінки.
+  const classify = (url, bodyStr, meta) => {
     const body = parse(bodyStr);
     if (!body) return null;
 
@@ -69,8 +87,18 @@
       const pid = pc && pc.promptId;
       if (typeof pid !== "string" || !pid.startsWith("OX_NICHE_")) return null;
       const ctx = (pc && pc.context) || {};
-      return (text) => {
+      return (text, ok) => {
         const html = htmlFromGrowth(parse(text));
+        if (ok && html) {
+          // Запит сторінки пройшов — це робочий шаблон для дозбору на цьому маркетплейсі.
+          post({
+            kind: "growthTemplate",
+            url: absUrl(url),
+            method: (meta && meta.method) || "POST",
+            headers: (meta && meta.headers) || {},
+            body,
+          });
+        }
         if (html) {
           post({
             kind: "insight",
@@ -90,15 +118,24 @@
   const xhrSend = XMLHttpRequest.prototype.send;
 
   XMLHttpRequest.prototype.open = function (method, url) {
-    try { this.__poeaUrl = toStr(url); } catch (e) { /* ignore */ }
+    try { this.__poeaUrl = toStr(url); this.__poeaMethod = toStr(method).toUpperCase(); this.__poeaHeaders = {}; } catch (e) { /* ignore */ }
     return xhrOpen.apply(this, arguments);
+  };
+
+  const xhrSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    try {
+      const k = String(name).toLowerCase();
+      if (this.__poeaHeaders && !SKIP_HEADERS.has(k)) this.__poeaHeaders[k] = String(value);
+    } catch (e) { /* ignore */ }
+    return xhrSetHeader.apply(this, arguments);
   };
 
   XMLHttpRequest.prototype.send = function (body) {
     try {
       const url = this.__poeaUrl || "";
       if (interesting(url)) {
-        const handle = classify(url, toStr(body));
+        const handle = classify(url, toStr(body), { headers: this.__poeaHeaders || {}, method: this.__poeaMethod });
         if (handle) {
           this.addEventListener("load", () => {
             try {
@@ -106,7 +143,7 @@
               let text = null;
               if (rt === "" || rt === "text") text = this.responseText;
               else if (rt === "json") text = JSON.stringify(this.response);
-              if (text != null) handle(text);
+              if (text != null) handle(text, this.status >= 200 && this.status < 300);
             } catch (e) { /* responseText може кинути InvalidStateError — пропускаємо */ }
           });
         }
@@ -132,9 +169,12 @@
         const url = urlOf(input);
         if (interesting(url)) {
           bodyOf(input, init).then((bodyStr) => {
-            const handle = classify(url, bodyStr);
+            const isReq = typeof Request !== "undefined" && input instanceof Request;
+            const headers = Object.assign({}, isReq ? headersToObj(input.headers) : {}, headersToObj(init && init.headers));
+            const method = String((init && init.method) || (isReq && input.method) || "GET").toUpperCase();
+            const handle = classify(url, bodyStr, { headers, method });
             if (!handle) return;
-            p.then((res) => res.clone().text().then(handle).catch(noop)).catch(noop);
+            p.then((res) => res.clone().text().then((t) => handle(t, res.ok)).catch(noop)).catch(noop);
           }).catch(noop);
         }
       } catch (e) { /* ніколи не ламаємо сторінку */ }

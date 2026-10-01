@@ -134,32 +134,81 @@
     persist();
   };
 
+  // ---- шаблон growth-запиту, підглянутий у самої сторінки (по origin) ----
+  // Маркетплейси відрізняються формою запиту (на .co.uk типове тіло дає 400),
+  // тому дозбір повторює саме той запит, який сторінка вже успішно зробила.
+  const TPL_KEY = "poea_growth_tpl";
+  const ORIGIN = window.location.origin;
+  const readTemplates = () => new Promise((resolve) => {
+    try { chrome.storage.local.get(TPL_KEY, (r) => resolve((r && r[TPL_KEY]) || {})); } catch (e) { resolve({}); }
+  });
+  const handleTemplate = async (m) => {
+    if (!m.url || !m.body || typeof m.body !== "object") return;
+    const all = await readTemplates();
+    all[ORIGIN] = { url: m.url, method: m.method || "POST", headers: m.headers || {}, body: m.body, capturedAt: nowIso() };
+    try { chrome.storage.local.set({ [TPL_KEY]: all }); } catch (e) { /* ignore */ }
+  };
+
   window.addEventListener("message", (ev) => {
     if (ev.source !== window) return;
     const m = ev.data;
     if (!m || m[MARK] !== true) return;
     if (m.kind === "niche") handleNiche(m);
     else if (m.kind === "insight") handleInsight(m);
+    else if (m.kind === "growthTemplate") handleTemplate(m);
   });
 
   // ---- активний дозбір відсутніх інсайтів (на запит попапу) ----
-  const fetchInsight = async (promptId, nicheId, obfuscatedMarketplaceId) => {
+  // CSRF-токен Seller Central, якщо сторінка його публікує (запасний шлях без шаблону).
+  const csrfToken = () => {
+    try {
+      const el = document.querySelector('meta[name="anti-csrftoken-a2z"], meta[name="csrf-token"]');
+      return el ? el.getAttribute("content") : null;
+    } catch (e) { return null; }
+  };
+
+  const buildRequest = (tpl, promptId, nicheId, obfuscatedMarketplaceId) => {
+    if (tpl) {
+      const body = JSON.parse(JSON.stringify(tpl.body));
+      body.promptContext = body.promptContext || {};
+      body.promptContext.promptId = promptId;
+      body.promptContext.context = body.promptContext.context || {};
+      body.promptContext.context.nicheId = nicheId;
+      if (obfuscatedMarketplaceId) body.promptContext.context.obfuscatedMarketplaceId = obfuscatedMarketplaceId;
+      const headers = Object.assign({ "content-type": "application/json" }, tpl.headers || {});
+      return { url: tpl.url, method: tpl.method || "POST", headers, body };
+    }
+    const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    const t = csrfToken();
+    if (t) headers["anti-csrftoken-a2z"] = t;
+    return {
+      url: GROWTH_URL,
+      method: "POST",
+      headers,
+      body: {
+        widgetContext: { from: "OX_WIDGET", to: "GROWTH_AGENT" },
+        promptContext: { promptId, context: { nicheId, obfuscatedMarketplaceId } },
+      },
+    };
+  };
+
+  const fetchInsight = async (req) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    const body = {
-      widgetContext: { from: "OX_WIDGET", to: "GROWTH_AGENT" },
-      promptContext: { promptId, context: { nicheId, obfuscatedMarketplaceId } },
-    };
     try {
-      const r = await fetch(GROWTH_URL, {
-        method: "POST",
+      const r = await fetch(req.url, {
+        method: req.method,
         credentials: "include",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(body),
+        headers: req.headers,
+        body: JSON.stringify(req.body),
         signal: controller.signal,
       });
       clearTimeout(timer);
-      if (!r.ok) return { error: "http " + r.status };
+      if (!r.ok) {
+        let detail = "";
+        try { detail = (await r.text()).replace(/\s+/g, " ").slice(0, 200); } catch (e) { /* ignore */ }
+        return { error: "http " + r.status, status: r.status, detail };
+      }
       const j = await r.json();
       const msgs = j && Array.isArray(j.messages) ? j.messages : [];
       const html = msgs.map((x) => (x && typeof x.payload === "string" ? x.payload : "")).filter(Boolean).join("\n");
@@ -169,6 +218,9 @@
       return { error: e && e.name === "AbortError" ? "timeout" : String(e) };
     }
   };
+
+  // 400/401/403/404 від повтору нічого не виграють — повторюємо лише порожнє, 429, 5xx, таймаут.
+  const retryable = (res) => !res.status || res.status === 429 || res.status >= 500;
 
   const notify = (payload) => {
     try {
@@ -183,21 +235,33 @@
     if (!ids.length) return { insights, steps };
     if (collecting) return { insights, steps, error: "busy" };
     collecting = nicheId;
+    const tpl = (await readTemplates())[ORIGIN] || null;
+    let rejected = null; // перша «тверда» відмова без шаблону — далі не стукаємо
     try {
       for (let i = 0; i < ids.length; i++) {
         const pid = ids[i];
+        if (rejected) { insights[pid] = { error: "skipped (" + rejected + ")", via: "active" }; continue; }
         notify({ nicheId, promptId: pid, done: i, total: ids.length });
+        const req = buildRequest(tpl, pid, nicheId, obfuscatedMarketplaceId);
         let entry = { error: "no-response", via: "active" };
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
           const t0 = Date.now();
-          const res = await fetchInsight(pid, nicheId, obfuscatedMarketplaceId);
-          steps.push({ promptId: pid, attempt, ms: Date.now() - t0, status: res.html ? "ok" : res.error, len: res.html ? res.html.length : 0 });
+          const res = await fetchInsight(req);
+          steps.push({
+            promptId: pid, attempt, ms: Date.now() - t0,
+            status: res.html ? "ok" : res.error, len: res.html ? res.html.length : 0,
+            template: !!tpl, detail: res.detail || undefined,
+          });
           if (res.html) { entry = { capturedAt: nowIso(), html: res.html, via: "active" }; break; }
           entry = { error: res.error, via: "active" };
+          if (!retryable(res)) {
+            if (!tpl && res.status >= 400 && res.status < 500) rejected = res.error;
+            break;
+          }
           if (attempt < MAX_ATTEMPTS) await sleep(RETRY_DELAY_MS);
         }
         insights[pid] = entry;
-        if (i < ids.length - 1) await sleep(jitter(GAP_MIN_MS, GAP_MAX_MS));
+        if (!rejected && i < ids.length - 1) await sleep(jitter(GAP_MIN_MS, GAP_MAX_MS));
       }
       // Успішно дозібране зберігаємо: повторне завантаження не ганяє запити знову.
       const rec = cache[nicheId];
@@ -208,7 +272,7 @@
         await persist();
       }
       notify({ nicheId, done: ids.length, total: ids.length });
-      return { insights, steps };
+      return { insights, steps, templateUsed: !!tpl, rejected: rejected || undefined };
     } finally {
       collecting = null;
     }
